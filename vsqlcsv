@@ -1,0 +1,123 @@
+#!/usr/bin/env python
+
+import vertica_python, argparse, csv, getpass, sys
+
+parser = argparse.ArgumentParser(description="Outputs vertica query results as proper CSV")
+parser.add_argument(
+    "--host",
+    help="Database host (default: localhost)",
+    type=str,
+    default='localhost'
+)
+
+parser.add_argument(
+    '-p',
+    "--port",
+    help="Database port (default: 5433)",
+    type=int,
+    default=5433
+)
+
+parser.add_argument(
+    '-U',
+    dest='user',
+    help="Database user (default: {})".format(getpass.getuser()),
+    type=str,
+    default=getpass.getuser()
+)
+
+parser.add_argument(
+    '-w',
+    dest='password',
+    help="Database user password (default: None)",
+    type=str,
+    default=''
+)
+
+parser.add_argument(
+    '-c',
+    dest='command',
+    help="Command to execute. (can also be passed via STDIN)",
+    type=str,
+)
+
+parser.add_argument(
+    '-F',
+    dest='delimiter',
+    help="Field Separator (default: ,)",
+    type=str,
+    default=','
+)
+
+parser.add_argument(
+    '-Q',
+    dest='quote',
+    help="Field delimiter, quote (default: \")",
+    type=str,
+    default='"'
+)
+
+parser.add_argument(
+    '--header',
+    help="Output header",
+    action='store_true'
+)
+
+parser.add_argument(
+    '--quoting',
+    help="Quoting style",
+    type=lambda q: q if hasattr(csv, 'QUOTE_' + q.upper()) else 'minimal',
+    default='minimal',
+    choices=['none', 'minimal', 'nonnumeric', 'all']
+)
+
+parser.add_argument(
+    '--escape-char',
+    help="Escape character",
+    type=str,
+    default='\\'
+)
+
+parser.add_argument(
+    dest='dbname',
+    help="Database name",
+    type=str,
+    nargs=1
+)
+
+args = parser.parse_args()
+
+# Enable passing the command via stdin
+command = ''
+if args.command is not None and args.command != '':
+    command = args.command
+else:
+    command = sys.stdin.read()
+
+
+conn_info = {'host': args.host, 'port': args.port, 'user': args.user, 'password': args.password, 'database': args.dbname[0]}
+connection = None
+try:
+    connection = vertica_python.connect(**conn_info)
+
+    cur = connection.cursor()
+    cur.execute(args.command)
+
+    writer = csv.writer(sys.stdout,
+        delimiter = args.delimiter,
+        quotechar = args.quote,
+        quoting = getattr(csv, 'QUOTE_' + args.quoting.upper()),
+        # This shouldn't be used. But we avoid exceptions by specifying this clause
+        escapechar = args.escape_char
+    )
+
+    if args.header:
+        writer.writerow(list(col.name for col in cur.description))
+
+    for row in cur.iterate():
+        writer.writerow(row)
+except Exception as ex:
+    raise
+finally:
+    if connection is not None:
+        connection.close()
